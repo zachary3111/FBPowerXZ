@@ -9,7 +9,7 @@ await Actor.init();
 try {
   const input = (await Actor.getInput()) || {};
 
-  // ---- Cookies: read from cookies OR cookies_json; accept JSON array OR raw header string; decode %-encoded values ----
+  // ---- UA and helpers ----
   const MOBILE_UA =
     'Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36';
 
@@ -41,6 +41,7 @@ try {
       .filter(Boolean);
   };
 
+  // ---- Cookies: support `cookies` array, `cookies_json` array, or raw header string ----
   let cookies = Array.isArray(input.cookies) ? input.cookies : [];
   if (!cookies.length) {
     if (Array.isArray(input.cookies_json)) {
@@ -48,14 +49,9 @@ try {
     } else if (typeof input.cookies_json === 'string' && input.cookies_json.trim()) {
       try {
         const parsed = JSON.parse(input.cookies_json);
-        if (Array.isArray(parsed)) {
-          cookies = parsed;
-        } else {
-          // Not an array -> try header format
-          cookies = parseCookieHeader(input.cookies_json);
-        }
+        if (Array.isArray(parsed)) cookies = parsed;
+        else cookies = parseCookieHeader(input.cookies_json);
       } catch {
-        // Not valid JSON -> try header format
         cookies = parseCookieHeader(input.cookies_json);
       }
     }
@@ -81,6 +77,9 @@ try {
 
   const seen = new Set();
   let total = 0;
+
+  // Track which sessions already had cookies added
+  const cookieSessions = new Set();
 
   const crawler = new PlaywrightCrawler({
     proxyConfiguration,
@@ -114,7 +113,8 @@ try {
         await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
         await page.setViewportSize({ width: 390, height: 844 });
 
-        if (session && cookies.length && !session.get('cookiesSet')) {
+        const key = (session && session.id) ? session.id : 'global';
+        if (cookies.length && !cookieSessions.has(key)) {
           try {
             const normalized = cookies.map((c) => ({
               name: String(c.name),
@@ -130,7 +130,7 @@ try {
               sameSite: c.sameSite || 'Lax',
             }));
             await page.context().addCookies(normalized);
-            session.set('cookiesSet', true);
+            cookieSessions.add(key);
           } catch (e) {
             log.warning('Failed to set cookies', { e: String(e) });
           }
