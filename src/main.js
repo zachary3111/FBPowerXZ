@@ -9,14 +9,18 @@ await Actor.init();
 try {
   const input = (await Actor.getInput()) || {};
 
-  // ---- Cookies: support cookies_json and decode %-encoded values ----
+  // ---- Cookies: support cookies_json (string or array) and decode %-encoded values ----
   let cookies = Array.isArray(input.cookies) ? input.cookies : [];
-  if (!cookies.length && typeof input.cookies_json === 'string' && input.cookies_json.trim()) {
-    try {
-      const parsed = JSON.parse(input.cookies_json);
-      if (Array.isArray(parsed)) cookies = parsed;
-    } catch (e) {
-      log.warning('Failed to parse cookies_json; ignoring. ' + String(e));
+  if (!cookies.length) {
+    if (typeof input.cookies_json === 'string' && input.cookies_json.trim()) {
+      try {
+        const parsed = JSON.parse(input.cookies_json);
+        if (Array.isArray(parsed)) cookies = parsed;
+      } catch (e) {
+        log.warning('Failed to parse cookies_json; ignoring. ' + String(e));
+      }
+    } else if (Array.isArray(input.cookies_json)) {
+      cookies = input.cookies_json;
     }
   }
 
@@ -49,16 +53,20 @@ try {
       maxPoolSize: Math.min(Math.max(Number(sessionOpts.maxPoolSize ?? 20), 1), 200),
       persistStateKey: sessionOpts.persistState === false ? undefined : 'SESSION_POOL_STATE',
     },
+
+    // ✅ Crawlee v3: put context options here, not inside launchContext
+    playwrightContextOptions: {
+      ignoreHTTPSErrors: true,
+      userAgent:
+        'Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36',
+      locale: 'en-US',
+      viewport: { width: 390, height: 844 },
+    },
+
     launchContext: {
       launchOptions: { headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] },
-      contextOptions: {
-        ignoreHTTPSErrors: true,
-        userAgent:
-          'Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36',
-        locale: 'en-US',
-        viewport: { width: 390, height: 844 },
-      },
     },
+
     preNavigationHooks: [
       async ({ page, session }) => {
         await page.route('**/*', (route) => {
@@ -77,7 +85,7 @@ try {
               value: decodeIfEncoded(c.value),
               domain:
                 c.domain && typeof c.domain === 'string'
-                  ? c.domain.startsWith('.') ? c.domain : c.domain
+                  ? (c.domain.startsWith('.') ? c.domain : c.domain)
                   : '.facebook.com',
               path: c.path || '/',
               expires: typeof c.expires === 'number' ? c.expires : -1,
@@ -94,10 +102,11 @@ try {
         }
       },
     ],
+
     requestHandlerTimeoutSecs: 1200,
     requestHandler: async ({ page, session }) => {
       await page.goto(startUrl, { waitUntil: 'domcontentloaded' });
-      await sleep(1500); // small settle time helps avoid early blockers
+      await sleep(1500); // give the page a moment
 
       const html0 = await page.content();
       if (isBlocked(html0)) {
@@ -110,11 +119,7 @@ try {
       while (total < maxResults) {
         const batch = await page.evaluate(() => {
           const abs = (href) => {
-            try {
-              return new URL(href, location.origin).href;
-            } catch {
-              return null;
-            }
+            try { return new URL(href, location.origin).href; } catch { return null; }
           };
           const items = [];
           for (const art of document.querySelectorAll('article')) {
