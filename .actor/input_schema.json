@@ -1,98 +1,86 @@
 {
-  "title": "Input",
+  "title": "Facebook Posts Search (m.facebook)",
+  "description": "Searches m.facebook.com posts and saves basic metadata with optional date filters.",
   "type": "object",
   "schemaVersion": 1,
   "properties": {
     "query": {
       "title": "Query",
       "type": "string",
-      "description": "Keywords to search for Facebook posts."
-    },
-    "recent_posts": {
-      "title": "Only recent posts",
-      "type": "boolean",
-      "default": false
-    },
-    "start_date": {
-      "title": "Start date",
-      "type": "string",
-      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
-    },
-    "end_date": {
-      "title": "End date",
-      "type": "string",
-      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+      "editor": "textfield",
+      "description": "Keywords to search for Facebook posts (e.g., \"new premises\" OR \"opening soon\")."
     },
     "maxResults": {
       "title": "Max results",
       "type": "integer",
+      "editor": "number",
       "minimum": 1,
       "maximum": 5000,
       "default": 100
     },
+    "recent_posts": {
+      "title": "Only recent posts (last 30 days)",
+      "type": "boolean",
+      "editor": "checkbox",
+      "default": false
+    },
+    "start_date": {
+      "title": "Start date (YYYY-MM-DD)",
+      "type": "string",
+      "format": "date",
+      "editor": "date",
+      "description": "Only include posts on/after this date. Optional."
+    },
+    "end_date": {
+      "title": "End date (YYYY-MM-DD)",
+      "type": "string",
+      "format": "date",
+      "editor": "date",
+      "description": "Only include posts on/before this date. Optional."
+    },
     "proxy": {
-      "title": "Proxy (recommended)",
+      "title": "Proxy configuration (recommended)",
       "type": "object",
-      "description": "Apify Proxy configuration object."
+      "editor": "proxy",
+      "description": "Use Apify Proxy or custom proxies."
     },
     "cookies": {
-      "title": "Playwright cookies",
+      "title": "Playwright cookies (optional)",
       "type": "array",
+      "editor": "json",
+      "description": "Paste cookies exported from your browser to pre-authenticate.",
       "items": {
         "type": "object",
         "properties": {
-          "name": {
-            "type": "string"
-          },
-          "value": {
-            "type": "string"
-          },
+          "name": { "type": "string" },
+          "value": { "type": "string" },
           "domain": {
-            "type": "string"
+            "type": "string",
+            "description": "e.g. .facebook.com or m.facebook.com (optional)"
           },
-          "path": {
-            "type": "string"
-          },
-          "expires": {
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "httpOnly": {
-            "type": "boolean"
-          },
-          "secure": {
-            "type": "boolean"
-          },
+          "path": { "type": "string", "default": "/" },
+          "expires": { "type": "number", "description": "Unix time (seconds). Omit for a session cookie." },
+          "httpOnly": { "type": "boolean", "default": false },
+          "secure": { "type": "boolean", "default": true },
           "sameSite": {
-            "type": "string"
+            "type": "string",
+            "enum": ["Lax", "None", "Strict"],
+            "default": "Lax"
           }
         },
-        "required": [
-          "name",
-          "value",
-          "domain"
-        ]
+        "required": ["name", "value"]
       }
     },
     "session": {
-      "title": "Session options",
+      "title": "Session options (optional)",
       "type": "object",
+      "editor": "json",
       "properties": {
-        "maxPoolSize": {
-          "type": "integer"
-        },
-        "persistState": {
-          "type": "boolean"
-        },
-        "retireOnBlocked": {
-          "type": "boolean"
-        }
+        "maxPoolSize": { "title": "Max session pool size", "type": "integer", "minimum": 1, "maximum": 200, "default": 20 },
+        "persistState": { "title": "Persist session state", "type": "boolean", "default": true },
+        "retireOnBlocked": { "title": "Retire session when blocked", "type": "boolean", "default": true }
       }
     }
   },
-  "required": [
-    "query"
-  ]
+  "required": ["query"]
 }
