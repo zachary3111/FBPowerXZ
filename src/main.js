@@ -9,18 +9,55 @@ await Actor.init();
 try {
   const input = (await Actor.getInput()) || {};
 
-  // ---- Cookies: support cookies_json (string or array) and decode %-encoded values ----
+  // ---- Cookies: read from cookies OR cookies_json; accept JSON array OR raw header string; decode %-encoded values ----
+  const MOBILE_UA =
+    'Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36';
+
+  const decodeIfEncoded = (v) =>
+    /%[0-9A-Fa-f]{2}/.test(String(v)) ? decodeURIComponent(String(v)) : String(v);
+
+  const parseCookieHeader = (header) => {
+    // Accepts: "name=value; name2=value2; ..."
+    if (typeof header !== 'string') return [];
+    return header
+      .split(';')
+      .map((p) => p.trim())
+      .filter(Boolean)
+      .map((pair) => {
+        const idx = pair.indexOf('=');
+        if (idx < 1) return null;
+        const name = pair.slice(0, idx).trim();
+        const value = pair.slice(idx + 1).trim();
+        return {
+          name,
+          value: decodeIfEncoded(value),
+          domain: '.facebook.com',
+          path: '/',
+          httpOnly: /^(xs|fr|datr|sb)$/i.test(name), // common httpOnly FB cookies
+          secure: true,
+          sameSite: 'Lax',
+        };
+      })
+      .filter(Boolean);
+  };
+
   let cookies = Array.isArray(input.cookies) ? input.cookies : [];
   if (!cookies.length) {
-    if (typeof input.cookies_json === 'string' && input.cookies_json.trim()) {
+    if (Array.isArray(input.cookies_json)) {
+      cookies = input.cookies_json;
+    } else if (typeof input.cookies_json === 'string' && input.cookies_json.trim()) {
       try {
         const parsed = JSON.parse(input.cookies_json);
-        if (Array.isArray(parsed)) cookies = parsed;
-      } catch (e) {
-        log.warning('Failed to parse cookies_json; ignoring. ' + String(e));
+        if (Array.isArray(parsed)) {
+          cookies = parsed;
+        } else {
+          // Not an array -> try header format
+          cookies = parseCookieHeader(input.cookies_json);
+        }
+      } catch {
+        // Not valid JSON -> try header format
+        cookies = parseCookieHeader(input.cookies_json);
       }
-    } else if (Array.isArray(input.cookies_json)) {
-      cookies = input.cookies_json;
     }
   }
 
@@ -54,17 +91,18 @@ try {
       persistStateKey: sessionOpts.persistState === false ? undefined : 'SESSION_POOL_STATE',
     },
 
-    // ✅ Crawlee v3: put context options here, not inside launchContext
-    playwrightContextOptions: {
-      ignoreHTTPSErrors: true,
-      userAgent:
-        'Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36',
-      locale: 'en-US',
-      viewport: { width: 390, height: 844 },
-    },
-
+    // Crawlee v3: set UA & HTTPS bypass via Chromium launch args (no playwrightContextOptions)
     launchContext: {
-      launchOptions: { headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] },
+      launchOptions: {
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-dev-shm-usage',
+          '--ignore-certificate-errors', // bypass MITM/invalid certs
+          `--user-agent=${MOBILE_UA}`,
+          '--lang=en-US',
+        ],
+      },
     },
 
     preNavigationHooks: [
@@ -74,12 +112,10 @@ try {
           route.continue();
         });
         await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
+        await page.setViewportSize({ width: 390, height: 844 });
 
         if (session && cookies.length && !session.get('cookiesSet')) {
           try {
-            const decodeIfEncoded = (v) =>
-              /%[0-9A-Fa-f]{2}/.test(String(v)) ? decodeURIComponent(String(v)) : String(v);
-
             const normalized = cookies.map((c) => ({
               name: String(c.name),
               value: decodeIfEncoded(c.value),
@@ -93,7 +129,6 @@ try {
               secure: c.secure !== false,
               sameSite: c.sameSite || 'Lax',
             }));
-
             await page.context().addCookies(normalized);
             session.set('cookiesSet', true);
           } catch (e) {
@@ -106,7 +141,7 @@ try {
     requestHandlerTimeoutSecs: 1200,
     requestHandler: async ({ page, session }) => {
       await page.goto(startUrl, { waitUntil: 'domcontentloaded' });
-      await sleep(1500); // give the page a moment
+      await sleep(1500); // settle
 
       const html0 = await page.content();
       if (isBlocked(html0)) {
@@ -118,14 +153,10 @@ try {
 
       while (total < maxResults) {
         const batch = await page.evaluate(() => {
-          const abs = (href) => {
-            try { return new URL(href, location.origin).href; } catch { return null; }
-          };
+          const abs = (href) => { try { return new URL(href, location.origin).href; } catch { return null; } };
           const items = [];
           for (const art of document.querySelectorAll('article')) {
-            const postLink = art.querySelector(
-              'a[href*="story.php"], a[href*="/posts/"], a[href*="/permalink/"], a[href*="/reel/"], a[href*="/videos/"]',
-            );
+            const postLink = art.querySelector('a[href*="story.php"], a[href*="/posts/"], a[href*="/permalink/"], a[href*="/reel/"], a[href*="/videos/"]');
             const url = postLink ? abs(postLink.getAttribute('href')) : null;
 
             const authorA = art.querySelector('header a[href^="/"]');
@@ -142,9 +173,7 @@ try {
 
             const raw = art.innerText || '';
             const firstImg = art.querySelector('img');
-            const image = firstImg
-              ? { uri: firstImg.src, height: Number(firstImg.height) || null, width: Number(firstImg.width) || null, id: null }
-              : null;
+            const image = firstImg ? { uri: firstImg.src, height: Number(firstImg.height)||null, width: Number(firstImg.width)||null, id: null } : null;
 
             const videoA = art.querySelector('a[href*="/reel/"], a[href*="/videos/"]');
             const video = videoA ? abs(videoA.getAttribute('href')) : null;
@@ -162,17 +191,7 @@ try {
               if (mid) author_id = mid[1];
             }
 
-            items.push({
-              url,
-              post_id,
-              message,
-              timestamp,
-              raw,
-              image,
-              video,
-              video_thumbnail,
-              author: { id: author_id, name: authorName, url: authorUrl, profile_picture_url: profilePic },
-            });
+            items.push({ url, post_id, message, timestamp, raw, image, video, video_thumbnail, author: { id: author_id, name: authorName, url: authorUrl, profile_picture_url: profilePic } });
           }
           return items;
         });
@@ -191,9 +210,7 @@ try {
           if (endEpoch && ts && ts > endEpoch + 86399) continue;
 
           const { reactions, comments, shares } = pickCounts(it.raw);
-          const reactionsObj = it.raw
-            ? { like: 0, love: 0, haha: 0, wow: 0, sad: 0, angry: 0, care: 0, ...parseReactionsBreakdown(it.raw) }
-            : null;
+          const reactionsObj = it.raw ? { like:0, love:0, haha:0, wow:0, sad:0, angry:0, care:0, ...parseReactionsBreakdown(it.raw) } : null;
 
           const out = {
             post_id: it.post_id || null,
@@ -216,7 +233,7 @@ try {
             attached_post: null,
             attached_post_url: null,
             text_format_metadata: null,
-            scrapedAt: new Date().toISOString(),
+            scrapedAt: new Date().toISOString()
           };
 
           if (!out.post_id && it.url) {
@@ -236,18 +253,12 @@ try {
         await sleep(900 + Math.random() * 600);
 
         const more = await page.evaluate(() => {
-          const el = Array.from(document.querySelectorAll('a, button')).find((e) =>
-            /see more|more results|show more|next/i.test(e.textContent || ''),
-          );
-          if (el) {
-            el.click();
-            return true;
-          }
+          const el = Array.from(document.querySelectorAll('a, button')).find(e => /see more|more results|show more|next/i.test(e.textContent||''));
+          if (el) { el.click(); return true; }
           return false;
         });
 
         if (more) await sleep(1200 + Math.random() * 800);
-
         const newCount = await page.evaluate(() => document.querySelectorAll('article').length);
         if (newCount < seen.size / 2) break;
       }
@@ -259,14 +270,7 @@ try {
   await crawler.run([{ url: startUrl }]);
 
   await Actor.pushData({
-    _summary: {
-      query,
-      total,
-      maxResults,
-      start_date: input.start_date || null,
-      end_date: input.end_date || null,
-      recent_posts: recentOnly,
-    },
+    _summary: { query, total, maxResults, start_date: input.start_date || null, end_date: input.end_date || null, recent_posts: recentOnly }
   });
 
   log.info('Done.');
