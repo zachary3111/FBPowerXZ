@@ -59,7 +59,12 @@
           "value": { "title": "Value", "type": "string", "description": "Cookie value." },
           "domain": { "title": "Domain", "type": "string", "description": "Cookie domain (e.g., .facebook.com or m.facebook.com). Optional." },
           "path": { "title": "Path", "type": "string", "description": "Cookie path (default '/')." },
-          "expires": { "title": "Expires (Unix seconds)", "type": ["number","null"], "description": "Expiry as Unix time (seconds). Null/omit for session cookie." },
+          "expires": {
+            "title": "Expires (Unix seconds)",
+            "type": "integer",
+            "minimum": 0,
+            "description": "Expiry as Unix time (seconds). Omit this field for a session cookie."
+          },
           "httpOnly": { "title": "HTTP-only", "type": "boolean", "description": "Whether the cookie is HTTP-only." },
           "secure": { "title": "Secure", "type": "boolean", "description": "Whether the cookie is Secure." },
           "sameSite": {
