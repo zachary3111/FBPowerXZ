@@ -60,7 +60,7 @@
       "title": "Cookies JSON",
       "type": "string",
       "editor": "javascript",
-      "description": "Paste a JSON array of cookie objects (EditThisCookie format). Example: [{\"name\":\"c_user\",\"value\":\"...\",\"domain\":\".facebook.com\",\"path\":\"/\",\"expires\":1788189497,\"httpOnly\":false,\"secure\":true,\"sameSite\":\"Lax\"}]"
+      "description": "Paste a JSON array of cookie objects (EditThisCookie-style). Example: [{\"name\":\"c_user\",\"value\":\"...\",\"domain\":\".facebook.com\",\"path\":\"/\",\"httpOnly\":false,\"secure\":true}]"
     },
 
     "session": {
