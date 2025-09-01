@@ -46,38 +46,24 @@
       "editor": "json",
       "description": "Apify Proxy or custom proxy configuration; passed to Actor.createProxyConfiguration()."
     },
+
+    /* ---- Cookies: validator wants editor=select at top level ---- */
     "cookies": {
-      "title": "Playwright cookies (optional)",
-      "type": "array",
-      "editor": "json",
-      "description": "Browser cookies array to pre-authenticate on Facebook.",
-      "items": {
-        "type": "object",
-        "title": "Cookie object",
-        "properties": {
-          "name": { "title": "Name", "type": "string", "description": "Cookie name (e.g., c_user)." },
-          "value": { "title": "Value", "type": "string", "description": "Cookie value." },
-          "domain": { "title": "Domain", "type": "string", "description": "Cookie domain (e.g., .facebook.com or m.facebook.com). Optional." },
-          "path": { "title": "Path", "type": "string", "description": "Cookie path (default '/')." },
-          "expires": {
-            "title": "Expires (Unix seconds)",
-            "type": "integer",
-            "minimum": 0,
-            "description": "Expiry as Unix time (seconds). Omit this field for a session cookie."
-          },
-          "httpOnly": { "title": "HTTP-only", "type": "boolean", "description": "Whether the cookie is HTTP-only." },
-          "secure": { "title": "Secure", "type": "boolean", "description": "Whether the cookie is Secure." },
-          "sameSite": {
-            "title": "SameSite",
-            "type": "string",
-            "enum": ["Lax", "None", "Strict"],
-            "description": "SameSite mode for the cookie."
-          }
-        },
-        "required": ["name", "value"],
-        "description": "Single cookie object."
-      }
+      "title": "Cookies input mode",
+      "type": "string",
+      "editor": "select",
+      "enum": ["none", "paste_json_below"],
+      "enumTitles": ["No cookies", "I'll paste JSON in 'Cookies JSON'"],
+      "default": "none",
+      "description": "Choose how you'll provide cookies. If you pick 'paste_json_below', fill the 'Cookies JSON' field with an array of cookie objects."
     },
+    "cookies_json": {
+      "title": "Cookies JSON",
+      "type": "string",
+      "editor": "javascript",
+      "description": "Paste a JSON array of cookie objects (e.g., from EditThisCookie). Example: [{\"name\":\"c_user\",\"value\":\"...\",\"domain\":\".facebook.com\",\"path\":\"/\",\"expires\":1788189497,\"httpOnly\":false,\"secure\":true,\"sameSite\":\"Lax\"}]"
+    },
+
     "session": {
       "title": "Session options (optional)",
       "type": "object",
