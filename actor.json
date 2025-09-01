@@ -1,0 +1,7 @@
+{
+  "actorSpecification": 1,
+  "name": "FBPowerXZ",
+  "title": "FBPowerXZ",
+  "version": "1.0",
+  "dockerfile": "Dockerfile"
+}
