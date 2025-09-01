@@ -107,7 +107,13 @@ try {
     preNavigationHooks: [
       async ({ page, session }) => {
         await page.route('**/*', (route) => {
-          if (shouldBlockRequest(route.request())) return route.abort();
+          // Never block first-party FB assets
+          try {
+            const u = new URL(route.request().url());
+            const host = u.hostname || '';
+            const isFB = /(?:^|\.)(facebook\.com|fbcdn\.net|fbsbx\.com|akamaihd\.net)$/i.test(host);
+            if (!isFB && shouldBlockRequest(route.request())) return route.abort();
+          } catch {}
           route.continue();
         });
         await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
@@ -140,9 +146,26 @@ try {
 
     requestHandlerTimeoutSecs: 1200,
     requestHandler: async ({ page, session }) => {
-      await page.goto(startUrl, { waitUntil: 'domcontentloaded' });
+      // ---- Auth preflight: confirm we are logged in BEFORE hitting search
+      await page.goto('https://m.facebook.com/home.php', { waitUntil: 'domcontentloaded' });
+      await sleep(1200);
+      const auth = await page.evaluate(() => {
+        const hasLogin = !!(document.querySelector('form[action*="/login"], #login_form, [data-sigil="m_login"], a[href*="/login.php"]'));
+        const hasCheckpoint = !!document.querySelector('form[action*="checkpoint"], a[href*="checkpoint/"]');
+        const hasMenu = !!document.querySelector('a[href="/menu/"], a[href*="logout.php"]');
+        const hasComposer = !!document.querySelector('[role="textbox"], textarea, [data-sigil*="composer"]');
+        return { hasLogin, hasCheckpoint, hasMenu, hasComposer, title: document.title || '' };
+      });
+      if ((auth.hasLogin || auth.hasCheckpoint) && !(auth.hasMenu || auth.hasComposer)) {
+        const html0 = await page.content();
+        log.warning('AUTH_FAIL: Looks like a login/checkpoint page. Snippet: ' + html0.slice(0, 400).replace(/\s+/g, ' ').trim());
+        if (session && (sessionOpts.retireOnBlocked ?? true)) session.retire();
+        return;
+      }
+      log.info(`Authenticated view OK: title="${auth.title}"`);
 
-      // Wait for either results or login/checkpoint to appear, then settle.
+      // ---- Now go to search
+      await page.goto(startUrl, { waitUntil: 'domcontentloaded' });
       try {
         await Promise.race([
           page.waitForSelector('article', { timeout: 8000 }),
@@ -151,13 +174,11 @@ try {
       } catch {}
       await sleep(1200);
 
-      // Decide "blocked" using DOM signals (not brittle string checks)
       const state = await page.evaluate(() => {
         const articles = document.querySelectorAll('article').length;
         const hasLogin = !!(document.querySelector('form[action*="/login"], #login_form, [data-sigil="m_login"], a[href*="/login.php"]'));
         const hasCheckpoint = !!document.querySelector('form[action*="checkpoint"], a[href*="checkpoint/"]');
-        const title = document.title || '';
-        return { articles, hasLogin, hasCheckpoint, title };
+        return { articles, hasLogin, hasCheckpoint, title: document.title || '' };
       });
 
       if ((state.hasLogin || state.hasCheckpoint) && state.articles === 0) {
@@ -169,11 +190,11 @@ try {
       }
 
       log.info(`Page ready: title="${state.title}", articles=${state.articles}`);
-
-      // Primer scroll to trigger lazy-loading before main loop
+      // Primer scroll for lazy content
       await page.evaluate(() => window.scrollBy(0, 600));
       await sleep(600);
 
+      // ---- Main scrape loop
       while (total < maxResults) {
         const batch = await page.evaluate(() => {
           const abs = (href) => { try { return new URL(href, location.origin).href; } catch { return null; } };
