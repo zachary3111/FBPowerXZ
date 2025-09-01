@@ -13,7 +13,7 @@
     "maxResults": {
       "title": "Max results",
       "type": "integer",
-      "editor": "textfield",
+      "editor": "number",
       "minimum": 1,
       "maximum": 5000,
       "default": 100,
@@ -22,7 +22,7 @@
     "recent_posts": {
       "title": "Only recent posts (last 30 days)",
       "type": "boolean",
-      "editor": "textfield",
+      "editor": "checkbox",
       "default": false,
       "description": "If true, only include posts from the last 30 days (ignored when start/end dates are set)."
     },
@@ -43,14 +43,14 @@
     "proxy": {
       "title": "Proxy configuration (recommended)",
       "type": "object",
-      "editor": "textarea",
-      "description": "Apify Proxy or custom proxy configuration; passed directly to Actor.createProxyConfiguration()."
+      "editor": "json",
+      "description": "Apify Proxy or custom proxy configuration; passed to Actor.createProxyConfiguration()."
     },
     "cookies": {
       "title": "Playwright cookies (optional)",
       "type": "array",
-      "editor": "textarea",
-      "description": "Browser cookies to pre-authenticate on Facebook (array of cookie objects).",
+      "editor": "json",
+      "description": "Browser cookies array to pre-authenticate on Facebook.",
       "items": {
         "type": "object",
         "properties": {
@@ -58,7 +58,7 @@
           "value": { "type": "string", "description": "Cookie value." },
           "domain": { "type": "string", "description": "Cookie domain (e.g., .facebook.com or m.facebook.com). Optional." },
           "path": { "type": "string", "description": "Cookie path (default '/')." },
-          "expires": { "type": ["number","null"], "description": "Expiry as Unix time (seconds). Null/omit for a session cookie." },
+          "expires": { "type": ["number","null"], "description": "Expiry as Unix time (seconds). Null/omit for session cookie." },
           "httpOnly": { "type": "boolean", "description": "Whether the cookie is HTTP-only." },
           "secure": { "type": "boolean", "description": "Whether the cookie is Secure." },
           "sameSite": {
@@ -74,7 +74,7 @@
     "session": {
       "title": "Session options (optional)",
       "type": "object",
-      "editor": "textarea",
+      "editor": "json",
       "description": "Session pool tuning parameters.",
       "properties": {
         "maxPoolSize": {
