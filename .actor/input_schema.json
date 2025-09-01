@@ -1,6 +1,6 @@
 {
   "title": "Facebook Posts Search (m.facebook)",
-  "description": "Searches m.facebook.com posts and saves basic metadata with optional date filters.",
+  "description": "Search m.facebook.com for posts matching a query, with optional date filters, cookies, and proxy.",
   "type": "object",
   "schemaVersion": 1,
   "properties": {
@@ -16,69 +16,88 @@
       "editor": "number",
       "minimum": 1,
       "maximum": 5000,
-      "default": 100
+      "default": 100,
+      "description": "Maximum number of posts to collect (1–5000)."
     },
     "recent_posts": {
       "title": "Only recent posts (last 30 days)",
       "type": "boolean",
       "editor": "checkbox",
-      "default": false
+      "default": false,
+      "description": "If enabled, only include posts from the last 30 days (ignored when start/end dates are set)."
     },
     "start_date": {
       "title": "Start date (YYYY-MM-DD)",
       "type": "string",
       "format": "date",
       "editor": "date",
-      "description": "Only include posts on/after this date. Optional."
+      "description": "Include posts on or after this date (optional)."
     },
     "end_date": {
       "title": "End date (YYYY-MM-DD)",
       "type": "string",
       "format": "date",
       "editor": "date",
-      "description": "Only include posts on/before this date. Optional."
+      "description": "Include posts on or before this date (optional)."
     },
     "proxy": {
       "title": "Proxy configuration (recommended)",
       "type": "object",
       "editor": "proxy",
-      "description": "Use Apify Proxy or custom proxies."
+      "description": "Apify Proxy or custom proxy configuration; passed to Actor.createProxyConfiguration()."
     },
     "cookies": {
       "title": "Playwright cookies (optional)",
       "type": "array",
       "editor": "json",
-      "description": "Paste cookies exported from your browser to pre-authenticate.",
+      "description": "Browser cookies to pre-authenticate on Facebook (array of cookie objects).",
       "items": {
         "type": "object",
         "properties": {
-          "name": { "type": "string" },
-          "value": { "type": "string" },
-          "domain": {
-            "type": "string",
-            "description": "e.g. .facebook.com or m.facebook.com (optional)"
-          },
-          "path": { "type": "string", "default": "/" },
-          "expires": { "type": "number", "description": "Unix time (seconds). Omit for a session cookie." },
-          "httpOnly": { "type": "boolean", "default": false },
-          "secure": { "type": "boolean", "default": true },
+          "name": { "type": "string", "description": "Cookie name (e.g., c_user)." },
+          "value": { "type": "string", "description": "Cookie value." },
+          "domain": { "type": "string", "description": "Cookie domain (e.g., .facebook.com or m.facebook.com). Optional." },
+          "path": { "type": "string", "default": "/", "description": "Cookie path. Defaults to '/'." },
+          "expires": { "type": "number", "description": "Expiry as Unix time (seconds). Omit for a session cookie." },
+          "httpOnly": { "type": "boolean", "default": false, "description": "Whether the cookie is HTTP-only." },
+          "secure": { "type": "boolean", "default": true, "description": "Whether the cookie is Secure." },
           "sameSite": {
             "type": "string",
             "enum": ["Lax", "None", "Strict"],
-            "default": "Lax"
+            "default": "Lax",
+            "description": "SameSite mode for the cookie."
           }
         },
-        "required": ["name", "value"]
+        "required": ["name", "value"],
+        "description": "Single cookie object."
       }
     },
     "session": {
       "title": "Session options (optional)",
       "type": "object",
       "editor": "json",
+      "description": "Session pool tuning parameters.",
       "properties": {
-        "maxPoolSize": { "title": "Max session pool size", "type": "integer", "minimum": 1, "maximum": 200, "default": 20 },
-        "persistState": { "title": "Persist session state", "type": "boolean", "default": true },
-        "retireOnBlocked": { "title": "Retire session when blocked", "type": "boolean", "default": true }
+        "maxPoolSize": {
+          "title": "Max session pool size",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "default": 20,
+          "description": "Maximum number of sessions in the pool."
+        },
+        "persistState": {
+          "title": "Persist session state",
+          "type": "boolean",
+          "default": true,
+          "description": "Whether to persist session state between runs."
+        },
+        "retireOnBlocked": {
+          "title": "Retire session when blocked",
+          "type": "boolean",
+          "default": true,
+          "description": "Retire session if a blocked page is detected."
+        }
       }
     }
   },
