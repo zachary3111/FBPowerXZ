@@ -29,15 +29,15 @@
     "start_date": {
       "title": "Start date (YYYY-MM-DD)",
       "type": "string",
-      "format": "date",
       "editor": "date",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
       "description": "Include posts on or after this date (optional)."
     },
     "end_date": {
       "title": "End date (YYYY-MM-DD)",
       "type": "string",
-      "format": "date",
       "editor": "date",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
       "description": "Include posts on or before this date (optional)."
     },
     "proxy": {
