@@ -4,7 +4,8 @@ ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 WORKDIR /usr/src/app
 
 COPY package*.json ./
-RUN npm install --omit=dev --no-audit --no-fund
+RUN npm install --omit=dev --no-audit --no-fund --legacy-peer-deps
+
 
 COPY . ./
 
