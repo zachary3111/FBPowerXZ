@@ -1,7 +1,8 @@
 import { Actor, log, Dataset } from 'apify';
 import { PlaywrightCrawler, Configuration } from 'crawlee';
 import dayjs from 'dayjs';
-import { sleep, pickCounts, parseReactionsBreakdown, shouldBlockRequest, toEpoch } from './utils.js';
+// Removed isBlocked/shouldBlockRequest; we use robust DOM checks and a safe router.
+import { sleep, pickCounts, parseReactionsBreakdown, toEpoch } from './utils.js';
 
 Configuration.set({ purgeOnStart: true });
 await Actor.init();
@@ -17,31 +18,26 @@ try {
     /%[0-9A-Fa-f]{2}/.test(String(v)) ? decodeURIComponent(String(v)) : String(v);
 
   const parseCookieHeader = (header) => {
-    // Accepts: "name=value; name2=value2; ..."
     if (typeof header !== 'string') return [];
-    return header
-      .split(';')
-      .map((p) => p.trim())
-      .filter(Boolean)
-      .map((pair) => {
-        const idx = pair.indexOf('=');
-        if (idx < 1) return null;
-        const name = pair.slice(0, idx).trim();
-        const value = pair.slice(idx + 1).trim();
-        return {
-          name,
-          value: decodeIfEncoded(value),
-          domain: '.facebook.com',
-          path: '/',
-          httpOnly: /^(xs|fr|datr|sb)$/i.test(name), // common httpOnly FB cookies
-          secure: true,
-          sameSite: 'Lax',
-        };
-      })
-      .filter(Boolean);
+    // Accepts a raw `Cookie:` header string; split on semicolons.
+    return header.split(';').map(s => s.trim()).filter(Boolean).map(pair => {
+      const idx = pair.indexOf('=');
+      if (idx < 1) return null;
+      const name = pair.slice(0, idx).trim();
+      const value = pair.slice(idx + 1).trim();
+      return {
+        name,
+        value: decodeIfEncoded(value),
+        domain: '.facebook.com',
+        path: '/',
+        httpOnly: /^(xs|fr|datr|sb)$/i.test(name),
+        secure: true,
+        sameSite: 'Lax',
+      };
+    }).filter(Boolean);
   };
 
-  // ---- Cookies: support `cookies` array, `cookies_json` array, or raw header string ----
+  // ---- Cookies: array, cookies_json array, or raw header string ----
   let cookies = Array.isArray(input.cookies) ? input.cookies : [];
   if (!cookies.length) {
     if (Array.isArray(input.cookies_json)) {
@@ -49,8 +45,7 @@ try {
     } else if (typeof input.cookies_json === 'string' && input.cookies_json.trim()) {
       try {
         const parsed = JSON.parse(input.cookies_json);
-        if (Array.isArray(parsed)) cookies = parsed;
-        else cookies = parseCookieHeader(input.cookies_json);
+        cookies = Array.isArray(parsed) ? parsed : parseCookieHeader(input.cookies_json);
       } catch {
         cookies = parseCookieHeader(input.cookies_json);
       }
@@ -71,14 +66,14 @@ try {
 
   const sessionOpts = input.session || {};
 
-  const base = new URL('https://m.facebook.com/search/posts/');
-  base.searchParams.set('q', query);
-  const startUrl = base.toString();
+  const searchTop = new URL('https://m.facebook.com/search/top/');
+  searchTop.searchParams.set('q', query);
+  const searchPosts = new URL('https://m.facebook.com/search/posts/');
+  searchPosts.searchParams.set('q', query);
 
   const seen = new Set();
   let total = 0;
 
-  // Track which sessions already had cookies added
   const cookieSessions = new Set();
 
   const crawler = new PlaywrightCrawler({
@@ -90,14 +85,14 @@ try {
       persistStateKey: sessionOpts.persistState === false ? undefined : 'SESSION_POOL_STATE',
     },
 
-    // Crawlee v3: set UA & HTTPS bypass via Chromium launch args (no playwrightContextOptions)
+    // Crawlee v3: use launch args for UA + TLS ignore
     launchContext: {
       launchOptions: {
         headless: true,
         args: [
           '--no-sandbox',
           '--disable-dev-shm-usage',
-          '--ignore-certificate-errors', // bypass MITM/invalid certs
+          '--ignore-certificate-errors',
           `--user-agent=${MOBILE_UA}`,
           '--lang=en-US',
         ],
@@ -106,13 +101,14 @@ try {
 
     preNavigationHooks: [
       async ({ page, session }) => {
+        // Safe router: never block FB first-party; drop common trackers only.
         await page.route('**/*', (route) => {
-          // Never block first-party FB assets
           try {
             const u = new URL(route.request().url());
             const host = u.hostname || '';
             const isFB = /(?:^|\.)(facebook\.com|fbcdn\.net|fbsbx\.com|akamaihd\.net)$/i.test(host);
-            if (!isFB && shouldBlockRequest(route.request())) return route.abort();
+            const isTracker = /(doubleclick|googlesyndication|google-analytics|googletagmanager|hotjar|mixpanel|optimizely|bing|yandex|adservice|adsystem)\./i.test(host);
+            if (!isFB && isTracker) return route.abort();
           } catch {}
           route.continue();
         });
@@ -146,42 +142,66 @@ try {
 
     requestHandlerTimeoutSecs: 1200,
     requestHandler: async ({ page, session }) => {
-      // ---- Auth preflight: confirm we are logged in BEFORE hitting search
+      // ---------- STRICT AUTH CHECK ----------
       await page.goto('https://m.facebook.com/home.php', { waitUntil: 'domcontentloaded' });
       await sleep(1200);
-      const auth = await page.evaluate(() => {
-        const hasLogin = !!(document.querySelector('form[action*="/login"], #login_form, [data-sigil="m_login"], a[href*="/login.php"]'));
-        const hasCheckpoint = !!document.querySelector('form[action*="checkpoint"], a[href*="checkpoint/"]');
-        const hasMenu = !!document.querySelector('a[href="/menu/"], a[href*="logout.php"]');
-        const hasComposer = !!document.querySelector('[role="textbox"], textarea, [data-sigil*="composer"]');
-        return { hasLogin, hasCheckpoint, hasMenu, hasComposer, title: document.title || '' };
-      });
-      if ((auth.hasLogin || auth.hasCheckpoint) && !(auth.hasMenu || auth.hasComposer)) {
-        const html0 = await page.content();
-        log.warning('AUTH_FAIL: Looks like a login/checkpoint page. Snippet: ' + html0.slice(0, 400).replace(/\s+/g, ' ').trim());
+
+      // Fail auth if redirected to login/checkpoint
+      const finalHomeUrl = page.url();
+      if (/\/login\.php|\/checkpoint\//i.test(finalHomeUrl)) {
+        log.warning(`AUTH_FAIL: redirected to ${finalHomeUrl}`);
         if (session && (sessionOpts.retireOnBlocked ?? true)) session.retire();
         return;
       }
-      log.info(`Authenticated view OK: title="${auth.title}"`);
 
-      // ---- Now go to search
-      await page.goto(startUrl, { waitUntil: 'domcontentloaded' });
-      try {
-        await Promise.race([
-          page.waitForSelector('article', { timeout: 8000 }),
-          page.waitForSelector('form[action*="/login"], #login_form, [data-sigil="m_login"], a[href*="/login.php"], form[action*="checkpoint"]', { timeout: 8000 }),
-        ]);
-      } catch {}
-      await sleep(1200);
-
-      const state = await page.evaluate(() => {
-        const articles = document.querySelectorAll('article').length;
-        const hasLogin = !!(document.querySelector('form[action*="/login"], #login_form, [data-sigil="m_login"], a[href*="/login.php"]'));
+      const auth = await page.evaluate(() => {
+        const hasVisibleLoginForm = !!document.querySelector('form[action*="/login"][method="post"] input[name="email"], #login_form input[name="email"]');
         const hasCheckpoint = !!document.querySelector('form[action*="checkpoint"], a[href*="checkpoint/"]');
-        return { articles, hasLogin, hasCheckpoint, title: document.title || '' };
+        const hasMenu = !!document.querySelector('a[href="/menu/"], a[href*="logout.php"]');
+        const hasFeed = !!document.querySelector('[role="feed"], [data-sigil*="m-feed-stream"]');
+        const hasComposer = !!document.querySelector('[role="textbox"], textarea, [data-sigil*="composer"]');
+        return { hasVisibleLoginForm, hasCheckpoint, hasMenu, hasFeed, hasComposer, title: document.title || '' };
       });
 
-      if ((state.hasLogin || state.hasCheckpoint) && state.articles === 0) {
+      if (auth.hasVisibleLoginForm || auth.hasCheckpoint || (!auth.hasMenu && !auth.hasFeed && !auth.hasComposer)) {
+        const html0 = await page.content();
+        log.warning('AUTH_FAIL: Looks like not logged in. Snippet: ' + html0.slice(0, 400).replace(/\s+/g, ' ').trim());
+        if (session && (sessionOpts.retireOnBlocked ?? true)) session.retire();
+        return;
+      }
+      log.info(`Authenticated view OK: title="${auth.title || 'n/a'}"`);
+
+      // ---------- SEARCH: open "Top" then switch to "Posts" ----------
+      await page.goto(searchTop.toString(), { waitUntil: 'domcontentloaded' });
+      await sleep(1000);
+
+      // If a "Posts" tab exists, click it; otherwise go directly to posts URL
+      const postsTab = await page.$('a[href*="/search/posts/"]');
+      if (postsTab) {
+        await postsTab.click();
+        await page.waitForLoadState('domcontentloaded');
+      } else {
+        await page.goto(searchPosts.toString(), { waitUntil: 'domcontentloaded' });
+      }
+
+      // Wait for either results or a visible login form
+      try {
+        await Promise.race([
+          page.waitForSelector('article, [role="article"]', { timeout: 8000 }),
+          page.waitForSelector('form[action*="/login"][method="post"] input[name="email"], #login_form input[name="email"], form[action*="checkpoint"]', { timeout: 8000 }),
+        ]);
+      } catch {}
+      await sleep(800);
+
+      // Decide block only if visible login/checkpoint AND no articles rendered
+      const state = await page.evaluate(() => {
+        const articles = document.querySelectorAll('article, [role="article"]').length;
+        const hasVisibleLoginForm = !!document.querySelector('form[action*="/login"][method="post"] input[name="email"], #login_form input[name="email"]');
+        const hasCheckpoint = !!document.querySelector('form[action*="checkpoint"], a[href*="checkpoint/"]');
+        return { articles, hasVisibleLoginForm, hasCheckpoint, title: document.title || '' };
+      });
+
+      if ((state.hasVisibleLoginForm || state.hasCheckpoint) && state.articles === 0) {
         const html0 = await page.content();
         log.warning('Blocked HTML snippet: ' + html0.slice(0, 400).replace(/\s+/g, ' ').trim());
         log.warning('Blocked page detected; retiring session');
@@ -189,21 +209,24 @@ try {
         return;
       }
 
-      log.info(`Page ready: title="${state.title}", articles=${state.articles}`);
+      log.info(`Search page ready: title="${state.title}", articles=${state.articles}`);
+
       // Primer scroll for lazy content
       await page.evaluate(() => window.scrollBy(0, 600));
       await sleep(600);
 
-      // ---- Main scrape loop
+      // ---------- Main scrape loop ----------
       while (total < maxResults) {
         const batch = await page.evaluate(() => {
           const abs = (href) => { try { return new URL(href, location.origin).href; } catch { return null; } };
           const items = [];
-          for (const art of document.querySelectorAll('article')) {
-            const postLink = art.querySelector('a[href*="story.php"], a[href*="/posts/"], a[href*="/permalink/"], a[href*="/reel/"], a[href*="/videos/"]');
+          for (const art of document.querySelectorAll('article, [role="article"]')) {
+            const postLink = art.querySelector(
+              'a[href*="story.php"], a[href*="/posts/"], a[href*="/permalink/"], a[href*="/reel/"], a[href*="/videos/"]'
+            );
             const url = postLink ? abs(postLink.getAttribute('href')) : null;
 
-            const authorA = art.querySelector('header a[href^="/"]');
+            const authorA = art.querySelector('header a[href^="/"], a[role="link"][href^="/"]');
             const authorName = authorA?.textContent?.trim() || null;
             const authorUrl = authorA ? abs(authorA.getAttribute('href')) : null;
             const profilePic = art.querySelector('image, img')?.getAttribute('src') || null;
@@ -293,6 +316,7 @@ try {
 
         if (total >= maxResults) break;
 
+        // Load more
         await page.evaluate(() => window.scrollBy(0, document.body.scrollHeight));
         await sleep(900 + Math.random() * 600);
 
@@ -301,9 +325,9 @@ try {
           if (el) { el.click(); return true; }
           return false;
         });
-
         if (more) await sleep(1200 + Math.random() * 800);
-        const newCount = await page.evaluate(() => document.querySelectorAll('article').length);
+
+        const newCount = await page.evaluate(() => document.querySelectorAll('article, [role="article"]').length);
         if (newCount < seen.size / 2) break;
       }
 
@@ -311,7 +335,7 @@ try {
     },
   });
 
-  await crawler.run([{ url: startUrl }]);
+  await crawler.run([{ url: searchTop.toString() }]);
 
   await Actor.pushData({
     _summary: { query, total, maxResults, start_date: input.start_date || null, end_date: input.end_date || null, recent_posts: recentOnly }
