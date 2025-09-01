@@ -1,7 +1,6 @@
 import { Actor, log, Dataset } from 'apify';
 import { PlaywrightCrawler, Configuration } from 'crawlee';
 import dayjs from 'dayjs';
-// Removed isBlocked/shouldBlockRequest; we use robust DOM checks and a safe router.
 import { sleep, pickCounts, parseReactionsBreakdown, toEpoch } from './utils.js';
 
 Configuration.set({ purgeOnStart: true });
@@ -17,7 +16,7 @@ try {
   const decodeIfEncoded = (v) =>
     /%[0-9A-Fa-f]{2}/.test(String(v)) ? decodeURIComponent(String(v)) : String(v);
 
-  // NEW: cookie normalizers (Playwright expects exact shapes)
+  // Cookie normalizers: Playwright requires exact shapes/values
   const normalizeSameSite = (v) => {
     const s = (v ?? 'Lax').toString().trim().toLowerCase();
     if (s === 'strict') return 'Strict';
@@ -25,20 +24,15 @@ try {
     if (s === 'none') return 'None';
     return 'Lax';
   };
-  const normalizeDomain = (d) => {
-    // Playwright wants domain without a leading dot
-    if (typeof d !== 'string' || !d.trim()) return 'facebook.com';
-    return d.trim().replace(/^\./, '');
-  };
   const normalizeExpires = (e) => {
     // Must be a positive UNIX seconds timestamp or undefined
     const n = Number(e);
     return Number.isFinite(n) && n > 0 ? n : undefined;
   };
 
+  // Accepts a raw `Cookie:` header string; split on semicolons.
   const parseCookieHeader = (header) => {
     if (typeof header !== 'string') return [];
-    // Accepts a raw `Cookie:` header string; split on semicolons.
     return header
       .split(';')
       .map((s) => s.trim())
@@ -51,8 +45,6 @@ try {
         return {
           name,
           value: decodeIfEncoded(value),
-          // domain gets normalized later
-          domain: '.facebook.com',
           path: '/',
           httpOnly: /^(xs|fr|datr|sb)$/i.test(name),
           secure: true,
@@ -126,6 +118,13 @@ try {
 
     preNavigationHooks: [
       async ({ page, session }) => {
+        // Tiny stealth shim
+        await page.addInitScript(() => {
+          Object.defineProperty(navigator, 'webdriver', { get: () => false });
+          Object.defineProperty(navigator, 'language', { get: () => 'en-US' });
+          Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+        });
+
         // Safe router: never block FB first-party; drop common trackers only.
         await page.route('**/*', (route) => {
           try {
@@ -137,21 +136,27 @@ try {
           } catch {}
           route.continue();
         });
+
         await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
         await page.setViewportSize({ width: 390, height: 844 });
 
+        // Set cookies (scope by URL to bind to m.facebook.com)
         const key = (session && session.id) ? session.id : 'global';
         if (cookies.length && !cookieSessions.has(key)) {
           try {
             const normalized = cookies
               .map((c) => {
+                const name = String(c.name ?? '').trim();
+                const value = decodeIfEncoded(c.value ?? '');
+                if (!name || !value) return null;
+
                 const sameSite = normalizeSameSite(c.sameSite);
-                // If SameSite=None, cookie MUST be secure
                 const secure = sameSite === 'None' ? true : c.secure !== false;
+
                 return {
-                  name: String(c.name ?? '').trim(),
-                  value: decodeIfEncoded(c.value ?? ''),
-                  domain: normalizeDomain(c.domain),
+                  name,
+                  value,
+                  url: 'https://m.facebook.com', // scope cookie to m.facebook.com
                   path: c.path || '/',
                   sameSite,
                   secure,
@@ -159,11 +164,31 @@ try {
                   expires: normalizeExpires(c.expires),
                 };
               })
-              .filter((c) => c.name && c.value); // only valid pairs
+              .filter(Boolean);
 
             await page.context().addCookies(normalized);
             cookieSessions.add(key);
             log.info(`Set ${normalized.length} cookies: ${normalized.map((c) => c.name).join(', ')}`);
+
+            // Sanity check: which cookies are visible to m.facebook.com?
+            const visible = await page.context().cookies(['https://m.facebook.com']);
+            const names = new Set(visible.map((k) => k.name));
+            for (const req of ['c_user', 'xs', 'datr']) {
+              if (!names.has(req)) log.warning(`Cookie visibility: "${req}" is NOT present for m.facebook.com`);
+            }
+
+            // Heuristic: warn if xs *looks* expired (3rd segment sometimes carries an epoch)
+            const xs = visible.find((k) => k.name.toLowerCase() === 'xs');
+            if (xs && typeof xs.value === 'string') {
+              const parts = xs.value.split(':');
+              const maybeTs = Number(parts[2]);
+              const now = Math.floor(Date.now() / 1000);
+              if (Number.isFinite(maybeTs) && maybeTs > 0 && maybeTs < now) {
+                log.warning(`Cookie sanity: xs appears expired (epoch ${maybeTs}). Please refresh cookies.`);
+              }
+            } else if (!xs) {
+              log.warning('Cookie sanity: no xs cookie found — login will fail.');
+            }
           } catch (e) {
             log.warning('Failed to set cookies after normalization', { e: String(e) });
           }
@@ -288,7 +313,17 @@ try {
               if (mid) author_id = mid[1];
             }
 
-            items.push({ url, post_id, message, timestamp, raw, image, video, video_thumbnail, author: { id: author_id, name: authorName, url: authorUrl, profile_picture_url: profilePic } });
+            items.push({
+              url,
+              post_id,
+              message,
+              timestamp,
+              raw,
+              image,
+              video,
+              video_thumbnail,
+              author: { id: author_id, name: authorName, url: authorUrl, profile_picture_url: profilePic },
+            });
           }
           return items;
         });
@@ -297,7 +332,7 @@ try {
           if (!it.url) continue;
           if (seen.has(it.url)) continue;
 
-        const ts = it.timestamp || null;
+          const ts = it.timestamp || null;
 
           if (recentOnly && !startEpoch && !endEpoch) {
             const cutoff = dayjs().subtract(30, 'day').unix();
@@ -307,7 +342,9 @@ try {
           if (endEpoch && ts && ts > endEpoch + 86399) continue;
 
           const { reactions, comments, shares } = pickCounts(it.raw);
-          const reactionsObj = it.raw ? { like:0, love:0, haha:0, wow:0, sad:0, angry:0, care:0, ...parseReactionsBreakdown(it.raw) } : null;
+          const reactionsObj = it.raw
+            ? { like: 0, love: 0, haha: 0, wow: 0, sad: 0, angry: 0, care: 0, ...parseReactionsBreakdown(it.raw) }
+            : null;
 
           const out = {
             post_id: it.post_id || null,
@@ -330,7 +367,7 @@ try {
             attached_post: null,
             attached_post_url: null,
             text_format_metadata: null,
-            scrapedAt: new Date().toISOString()
+            scrapedAt: new Date().toISOString(),
           };
 
           if (!out.post_id && it.url) {
@@ -351,13 +388,20 @@ try {
         await sleep(900 + Math.random() * 600);
 
         const more = await page.evaluate(() => {
-          const el = Array.from(document.querySelectorAll('a, button')).find(e => /see more|more results|show more|next/i.test(e.textContent||''));
-          if (el) { el.click(); return true; }
+          const el = Array.from(document.querySelectorAll('a, button')).find((e) =>
+            /see more|more results|show more|next/i.test(e.textContent || '')
+          );
+          if (el) {
+            el.click();
+            return true;
+          }
           return false;
         });
         if (more) await sleep(1200 + Math.random() * 800);
 
-        const newCount = await page.evaluate(() => document.querySelectorAll('article, [role="article"]').length);
+        const newCount = await page.evaluate(
+          () => document.querySelectorAll('article, [role="article"]').length
+        );
         if (newCount < seen.size / 2) break;
       }
 
@@ -368,7 +412,14 @@ try {
   await crawler.run([{ url: searchTop.toString() }]);
 
   await Actor.pushData({
-    _summary: { query, total, maxResults, start_date: input.start_date || null, end_date: input.end_date || null, recent_posts: recentOnly }
+    _summary: {
+      query,
+      total,
+      maxResults,
+      start_date: input.start_date || null,
+      end_date: input.end_date || null,
+      recent_posts: recentOnly,
+    },
   });
 
   log.info('Done.');
@@ -377,4 +428,4 @@ try {
   throw err;
 } finally {
   await Actor.exit();
-}
+                   }
