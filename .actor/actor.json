@@ -1,9 +1,7 @@
 {
   "actorSpecification": 1,
-  "name": "facebook-post-search-scraper-clone",
-  "title": "Facebook Post Search Scraper — PowerAI Clone",
+  "name": "FBPowerXZ",
+  "title": "FBPowerXZ",
   "version": "1.0",
-  "buildTag": "latest",
-  "storages": {},
   "dockerfile": "Dockerfile"
 }
