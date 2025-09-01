@@ -1,7 +1,7 @@
 import { Actor, log, Dataset } from 'apify';
 import { PlaywrightCrawler, Configuration } from 'crawlee';
 import dayjs from 'dayjs';
-import { sleep, pickCounts, parseReactionsBreakdown, shouldBlockRequest, toEpoch, isBlocked } from './utils.js';
+import { sleep, pickCounts, parseReactionsBreakdown, shouldBlockRequest, toEpoch } from './utils.js';
 
 Configuration.set({ purgeOnStart: true });
 await Actor.init();
@@ -141,15 +141,38 @@ try {
     requestHandlerTimeoutSecs: 1200,
     requestHandler: async ({ page, session }) => {
       await page.goto(startUrl, { waitUntil: 'domcontentloaded' });
-      await sleep(1500); // settle
 
-      const html0 = await page.content();
-      if (isBlocked(html0)) {
+      // Wait for either results or login/checkpoint to appear, then settle.
+      try {
+        await Promise.race([
+          page.waitForSelector('article', { timeout: 8000 }),
+          page.waitForSelector('form[action*="/login"], #login_form, [data-sigil="m_login"], a[href*="/login.php"], form[action*="checkpoint"]', { timeout: 8000 }),
+        ]);
+      } catch {}
+      await sleep(1200);
+
+      // Decide "blocked" using DOM signals (not brittle string checks)
+      const state = await page.evaluate(() => {
+        const articles = document.querySelectorAll('article').length;
+        const hasLogin = !!(document.querySelector('form[action*="/login"], #login_form, [data-sigil="m_login"], a[href*="/login.php"]'));
+        const hasCheckpoint = !!document.querySelector('form[action*="checkpoint"], a[href*="checkpoint/"]');
+        const title = document.title || '';
+        return { articles, hasLogin, hasCheckpoint, title };
+      });
+
+      if ((state.hasLogin || state.hasCheckpoint) && state.articles === 0) {
+        const html0 = await page.content();
         log.warning('Blocked HTML snippet: ' + html0.slice(0, 400).replace(/\s+/g, ' ').trim());
         log.warning('Blocked page detected; retiring session');
         if (session && (sessionOpts.retireOnBlocked ?? true)) session.retire();
         return;
       }
+
+      log.info(`Page ready: title="${state.title}", articles=${state.articles}`);
+
+      // Primer scroll to trigger lazy-loading before main loop
+      await page.evaluate(() => window.scrollBy(0, 600));
+      await sleep(600);
 
       while (total < maxResults) {
         const batch = await page.evaluate(() => {
