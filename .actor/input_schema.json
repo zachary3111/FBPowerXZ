@@ -13,7 +13,7 @@
     "maxResults": {
       "title": "Max results",
       "type": "integer",
-      "editor": "number",
+      "editor": "textfield",
       "minimum": 1,
       "maximum": 5000,
       "default": 100,
@@ -22,34 +22,34 @@
     "recent_posts": {
       "title": "Only recent posts (last 30 days)",
       "type": "boolean",
-      "editor": "checkbox",
+      "editor": "textfield",
       "default": false,
-      "description": "If enabled, only include posts from the last 30 days (ignored when start/end dates are set)."
+      "description": "If true, only include posts from the last 30 days (ignored when start/end dates are set)."
     },
     "start_date": {
       "title": "Start date (YYYY-MM-DD)",
       "type": "string",
-      "editor": "date",
+      "editor": "textfield",
       "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
       "description": "Include posts on or after this date (optional)."
     },
     "end_date": {
       "title": "End date (YYYY-MM-DD)",
       "type": "string",
-      "editor": "date",
+      "editor": "textfield",
       "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
       "description": "Include posts on or before this date (optional)."
     },
     "proxy": {
       "title": "Proxy configuration (recommended)",
       "type": "object",
-      "editor": "proxy",
-      "description": "Apify Proxy or custom proxy configuration; passed to Actor.createProxyConfiguration()."
+      "editor": "textarea",
+      "description": "Apify Proxy or custom proxy configuration; passed directly to Actor.createProxyConfiguration()."
     },
     "cookies": {
       "title": "Playwright cookies (optional)",
       "type": "array",
-      "editor": "json",
+      "editor": "textarea",
       "description": "Browser cookies to pre-authenticate on Facebook (array of cookie objects).",
       "items": {
         "type": "object",
@@ -57,14 +57,13 @@
           "name": { "type": "string", "description": "Cookie name (e.g., c_user)." },
           "value": { "type": "string", "description": "Cookie value." },
           "domain": { "type": "string", "description": "Cookie domain (e.g., .facebook.com or m.facebook.com). Optional." },
-          "path": { "type": "string", "default": "/", "description": "Cookie path. Defaults to '/'." },
-          "expires": { "type": "number", "description": "Expiry as Unix time (seconds). Omit for a session cookie." },
-          "httpOnly": { "type": "boolean", "default": false, "description": "Whether the cookie is HTTP-only." },
-          "secure": { "type": "boolean", "default": true, "description": "Whether the cookie is Secure." },
+          "path": { "type": "string", "description": "Cookie path (default '/')." },
+          "expires": { "type": ["number","null"], "description": "Expiry as Unix time (seconds). Null/omit for a session cookie." },
+          "httpOnly": { "type": "boolean", "description": "Whether the cookie is HTTP-only." },
+          "secure": { "type": "boolean", "description": "Whether the cookie is Secure." },
           "sameSite": {
             "type": "string",
             "enum": ["Lax", "None", "Strict"],
-            "default": "Lax",
             "description": "SameSite mode for the cookie."
           }
         },
@@ -75,7 +74,7 @@
     "session": {
       "title": "Session options (optional)",
       "type": "object",
-      "editor": "json",
+      "editor": "textarea",
       "description": "Session pool tuning parameters.",
       "properties": {
         "maxPoolSize": {
