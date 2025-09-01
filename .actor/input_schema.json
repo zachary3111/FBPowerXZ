@@ -47,7 +47,6 @@
       "description": "Apify Proxy or custom proxy configuration; passed to Actor.createProxyConfiguration()."
     },
 
-    /* ---- Cookies: validator wants editor=select at top level ---- */
     "cookies": {
       "title": "Cookies input mode",
       "type": "string",
@@ -55,13 +54,13 @@
       "enum": ["none", "paste_json_below"],
       "enumTitles": ["No cookies", "I'll paste JSON in 'Cookies JSON'"],
       "default": "none",
-      "description": "Choose how you'll provide cookies. If you pick 'paste_json_below', fill the 'Cookies JSON' field with an array of cookie objects."
+      "description": "Choose how you'll provide cookies. If you pick 'paste_json_below', fill the 'Cookies JSON' field with a JSON array of cookie objects."
     },
     "cookies_json": {
       "title": "Cookies JSON",
       "type": "string",
       "editor": "javascript",
-      "description": "Paste a JSON array of cookie objects (e.g., from EditThisCookie). Example: [{\"name\":\"c_user\",\"value\":\"...\",\"domain\":\".facebook.com\",\"path\":\"/\",\"expires\":1788189497,\"httpOnly\":false,\"secure\":true,\"sameSite\":\"Lax\"}]"
+      "description": "Paste a JSON array of cookie objects (EditThisCookie format). Example: [{\"name\":\"c_user\",\"value\":\"...\",\"domain\":\".facebook.com\",\"path\":\"/\",\"expires\":1788189497,\"httpOnly\":false,\"secure\":true,\"sameSite\":\"Lax\"}]"
     },
 
     "session": {
@@ -75,19 +74,16 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 200,
-          "default": 20,
           "description": "Maximum number of sessions in the pool."
         },
         "persistState": {
           "title": "Persist session state",
           "type": "boolean",
-          "default": true,
           "description": "Whether to persist session state between runs."
         },
         "retireOnBlocked": {
           "title": "Retire session when blocked",
           "type": "boolean",
-          "default": true,
           "description": "Retire session if a blocked page is detected."
         }
       }
