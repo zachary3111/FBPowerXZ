@@ -17,24 +17,49 @@ try {
   const decodeIfEncoded = (v) =>
     /%[0-9A-Fa-f]{2}/.test(String(v)) ? decodeURIComponent(String(v)) : String(v);
 
+  // NEW: cookie normalizers (Playwright expects exact shapes)
+  const normalizeSameSite = (v) => {
+    const s = (v ?? 'Lax').toString().trim().toLowerCase();
+    if (s === 'strict') return 'Strict';
+    if (s === 'lax') return 'Lax';
+    if (s === 'none') return 'None';
+    return 'Lax';
+  };
+  const normalizeDomain = (d) => {
+    // Playwright wants domain without a leading dot
+    if (typeof d !== 'string' || !d.trim()) return 'facebook.com';
+    return d.trim().replace(/^\./, '');
+  };
+  const normalizeExpires = (e) => {
+    // Must be a positive UNIX seconds timestamp or undefined
+    const n = Number(e);
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+  };
+
   const parseCookieHeader = (header) => {
     if (typeof header !== 'string') return [];
     // Accepts a raw `Cookie:` header string; split on semicolons.
-    return header.split(';').map(s => s.trim()).filter(Boolean).map(pair => {
-      const idx = pair.indexOf('=');
-      if (idx < 1) return null;
-      const name = pair.slice(0, idx).trim();
-      const value = pair.slice(idx + 1).trim();
-      return {
-        name,
-        value: decodeIfEncoded(value),
-        domain: '.facebook.com',
-        path: '/',
-        httpOnly: /^(xs|fr|datr|sb)$/i.test(name),
-        secure: true,
-        sameSite: 'Lax',
-      };
-    }).filter(Boolean);
+    return header
+      .split(';')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((pair) => {
+        const idx = pair.indexOf('=');
+        if (idx < 1) return null;
+        const name = pair.slice(0, idx).trim();
+        const value = pair.slice(idx + 1).trim();
+        return {
+          name,
+          value: decodeIfEncoded(value),
+          // domain gets normalized later
+          domain: '.facebook.com',
+          path: '/',
+          httpOnly: /^(xs|fr|datr|sb)$/i.test(name),
+          secure: true,
+          sameSite: 'Lax',
+        };
+      })
+      .filter(Boolean);
   };
 
   // ---- Cookies: array, cookies_json array, or raw header string ----
@@ -118,23 +143,29 @@ try {
         const key = (session && session.id) ? session.id : 'global';
         if (cookies.length && !cookieSessions.has(key)) {
           try {
-            const normalized = cookies.map((c) => ({
-              name: String(c.name),
-              value: decodeIfEncoded(c.value),
-              domain:
-                c.domain && typeof c.domain === 'string'
-                  ? (c.domain.startsWith('.') ? c.domain : c.domain)
-                  : '.facebook.com',
-              path: c.path || '/',
-              expires: typeof c.expires === 'number' ? c.expires : -1,
-              httpOnly: Boolean(c.httpOnly),
-              secure: c.secure !== false,
-              sameSite: c.sameSite || 'Lax',
-            }));
+            const normalized = cookies
+              .map((c) => {
+                const sameSite = normalizeSameSite(c.sameSite);
+                // If SameSite=None, cookie MUST be secure
+                const secure = sameSite === 'None' ? true : c.secure !== false;
+                return {
+                  name: String(c.name ?? '').trim(),
+                  value: decodeIfEncoded(c.value ?? ''),
+                  domain: normalizeDomain(c.domain),
+                  path: c.path || '/',
+                  sameSite,
+                  secure,
+                  httpOnly: Boolean(c.httpOnly),
+                  expires: normalizeExpires(c.expires),
+                };
+              })
+              .filter((c) => c.name && c.value); // only valid pairs
+
             await page.context().addCookies(normalized);
             cookieSessions.add(key);
+            log.info(`Set ${normalized.length} cookies: ${normalized.map((c) => c.name).join(', ')}`);
           } catch (e) {
-            log.warning('Failed to set cookies', { e: String(e) });
+            log.warning('Failed to set cookies after normalization', { e: String(e) });
           }
         }
       },
@@ -175,7 +206,6 @@ try {
       await page.goto(searchTop.toString(), { waitUntil: 'domcontentloaded' });
       await sleep(1000);
 
-      // If a "Posts" tab exists, click it; otherwise go directly to posts URL
       const postsTab = await page.$('a[href*="/search/posts/"]');
       if (postsTab) {
         await postsTab.click();
@@ -267,7 +297,7 @@ try {
           if (!it.url) continue;
           if (seen.has(it.url)) continue;
 
-          const ts = it.timestamp || null;
+        const ts = it.timestamp || null;
 
           if (recentOnly && !startEpoch && !endEpoch) {
             const cutoff = dayjs().subtract(30, 'day').unix();
