@@ -53,15 +53,17 @@
       "description": "Browser cookies array to pre-authenticate on Facebook.",
       "items": {
         "type": "object",
+        "title": "Cookie object",
         "properties": {
-          "name": { "type": "string", "description": "Cookie name (e.g., c_user)." },
-          "value": { "type": "string", "description": "Cookie value." },
-          "domain": { "type": "string", "description": "Cookie domain (e.g., .facebook.com or m.facebook.com). Optional." },
-          "path": { "type": "string", "description": "Cookie path (default '/')." },
-          "expires": { "type": ["number","null"], "description": "Expiry as Unix time (seconds). Null/omit for session cookie." },
-          "httpOnly": { "type": "boolean", "description": "Whether the cookie is HTTP-only." },
-          "secure": { "type": "boolean", "description": "Whether the cookie is Secure." },
+          "name": { "title": "Name", "type": "string", "description": "Cookie name (e.g., c_user)." },
+          "value": { "title": "Value", "type": "string", "description": "Cookie value." },
+          "domain": { "title": "Domain", "type": "string", "description": "Cookie domain (e.g., .facebook.com or m.facebook.com). Optional." },
+          "path": { "title": "Path", "type": "string", "description": "Cookie path (default '/')." },
+          "expires": { "title": "Expires (Unix seconds)", "type": ["number","null"], "description": "Expiry as Unix time (seconds). Null/omit for session cookie." },
+          "httpOnly": { "title": "HTTP-only", "type": "boolean", "description": "Whether the cookie is HTTP-only." },
+          "secure": { "title": "Secure", "type": "boolean", "description": "Whether the cookie is Secure." },
           "sameSite": {
+            "title": "SameSite",
             "type": "string",
             "enum": ["Lax", "None", "Strict"],
             "description": "SameSite mode for the cookie."
