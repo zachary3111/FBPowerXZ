@@ -1,0 +1,17 @@
+{
+  "query": "new premises",
+  "recent_posts": true,
+  "maxResults": 20,
+  "proxy": {
+    "useApifyProxy": true,
+    "groups": [
+      "RESIDENTIAL"
+    ]
+  },
+  "session": {
+    "maxPoolSize": 10,
+    "persistState": true,
+    "retireOnBlocked": true
+  },
+  "cookies": []
+}

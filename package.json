@@ -1,0 +1,13 @@
+{
+  "name": "facebook-post-search-scraper-clone",
+  "version": "1.0.0",
+  "description": "Clone of PowerAI Facebook Post Search Scraper (best-effort DOM scraper).",
+  "type": "module",
+  "scripts": { "start": "node src/main.js", "dev": "node --watch src/main.js" },
+  "dependencies": {
+    "apify": "^3.4.4",
+    "crawlee": "^3.14.0",
+    "playwright": "^1.46.0",
+    "dayjs": "^1.11.11"
+  }
+}

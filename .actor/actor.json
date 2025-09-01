@@ -1,0 +1,9 @@
+{
+  "actorSpecification": 1,
+  "name": "facebook-post-search-scraper-clone",
+  "title": "Facebook Post Search Scraper — PowerAI Clone",
+  "version": "1.0",
+  "buildTag": "latest",
+  "storages": {},
+  "dockerfile": "# Use repository Dockerfile"
+}

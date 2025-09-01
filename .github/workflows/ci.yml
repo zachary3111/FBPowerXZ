@@ -1,0 +1,13 @@
+name: build-actor
+on:
+  push:
+    branches: [ main, feat/** ]
+  pull_request:
+    branches: [ main ]
+jobs:
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Actor image
+        run: docker build -t fb-post-search-actor .
